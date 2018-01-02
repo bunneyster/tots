@@ -1,0 +1,4 @@
+__pycache__
+matches/csv/*.csv
+matches/json/*.json
+models/**
