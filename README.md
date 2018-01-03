@@ -20,7 +20,17 @@
 ## Model #2
 
 ### Parameters
-* replay count: 2,055,332
-  * training dataset size: 3,677,378
-  * testing dataset size: 433,286
+* training dataset size: 800,000
+* testing dataset size: 88,888
 * hidden units: [23, 13, 3]
+
+### Results
+* accuracy: 0.583858
+* accuracy_baseline: 0.5
+* auc: 0.619257
+* auc_precision_recall: 0.611224
+* average_loss: 0.673288
+* global_step: 21142445
+* label/mean: 0.5
+* loss: 13.4655
+* prediction/mean: 0.499873
