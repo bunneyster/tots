@@ -14,10 +14,12 @@ BATCH_SIZE = 200
 TRAIN_SIZE = 3677378
 HIDDEN_UNITS = [23, 13, 3]
 
-# Return the next feature and label Tensors from given data file (.csv).
+# Extract/return the features and labels from the CSV as a tuple.
 #
-# Each element in the Dataset is a tuple of the form (features, label).
+# The features are in a dictionary that maps feature name to a list of Tensors,
+# one Tensor for each
 def input_fn(data_file, num_epochs, shuffle, batch_size):
+    print(f"\nParsing file {data_file}")
     def parse_csv(row):
         columns = tf.decode_csv(row, record_defaults=constants.COLUMN_DEFAULTS)
         features = dict(zip(constants.COLUMN_NAMES, columns))
@@ -28,7 +30,8 @@ def input_fn(data_file, num_epochs, shuffle, batch_size):
     if shuffle:
         dataset = dataset.shuffle(buffer_size=TRAIN_SIZE)
 
-    dataset = dataset.map(parse_csv, num_parallel_calls=500)
+    # Set num_parallel_calls to number of CPUs.
+    dataset = dataset.map(parse_csv, num_parallel_calls=4)
     dataset = dataset.repeat(num_epochs)
     dataset = dataset.batch(batch_size)
 
@@ -42,31 +45,14 @@ def hero_column_for(key):
         key, constants.HEROES
     )
 
-won_hero_1 = hero_column_for('won_hero_1')
-won_hero_2 = hero_column_for('won_hero_2')
-won_hero_3 = hero_column_for('won_hero_3')
-won_hero_4 = hero_column_for('won_hero_4')
-won_hero_5 = hero_column_for('won_hero_5')
-won_hero_columns = [won_hero_1, won_hero_2, won_hero_3, won_hero_4, won_hero_5]
+won_hero_cols = [hero_column_for(f"won_hero_{x + 1}") for x in range(5)]
+won_hero_indicator_cols = [tf.feature_column.indicator_column(x) for x in won_hero_cols]
 
-lost_hero_1 = hero_column_for('lost_hero_1')
-lost_hero_2 = hero_column_for('lost_hero_2')
-lost_hero_3 = hero_column_for('lost_hero_3')
-lost_hero_4 = hero_column_for('lost_hero_4')
-lost_hero_5 = hero_column_for('lost_hero_5')
-lost_hero_columns = [lost_hero_1, lost_hero_2, lost_hero_3, lost_hero_4, lost_hero_5]
+lost_hero_cols = [hero_column_for(f"lost_hero_{x + 1}") for x in range(5)]
+lost_hero_indicator_cols = [tf.feature_column.indicator_column(x) for x in lost_hero_cols]
 
-won_mmr_1 = tf.feature_column.numeric_column('won_mmr_1')
-won_mmr_2 = tf.feature_column.numeric_column('won_mmr_2')
-won_mmr_3 = tf.feature_column.numeric_column('won_mmr_3')
-won_mmr_4 = tf.feature_column.numeric_column('won_mmr_4')
-won_mmr_5 = tf.feature_column.numeric_column('won_mmr_5')
-
-lost_mmr_1 = tf.feature_column.numeric_column('lost_mmr_1')
-lost_mmr_2 = tf.feature_column.numeric_column('lost_mmr_2')
-lost_mmr_3 = tf.feature_column.numeric_column('lost_mmr_3')
-lost_mmr_4 = tf.feature_column.numeric_column('lost_mmr_4')
-lost_mmr_5 = tf.feature_column.numeric_column('lost_mmr_5')
+won_mmr_cols = [tf.feature_column.numeric_column(f"won_mmr_{x + 1}") for x in range(5)]
+lost_mmr_cols = [tf.feature_column.numeric_column(f"lost_mmr_{x + 1}") for x in range(5)]
 
 map_name = tf.feature_column.categorical_column_with_vocabulary_list(
     'map_name', constants.MAPS
@@ -74,40 +60,30 @@ map_name = tf.feature_column.categorical_column_with_vocabulary_list(
 
 duration = tf.feature_column.numeric_column('duration')
 
-base_columns = [
-    won_hero_1, won_hero_2, won_hero_3, won_hero_4, won_hero_5,
-    lost_hero_1, lost_hero_2, lost_hero_3, lost_hero_4, lost_hero_5,
-    map_name
-]
-crossed_columns = []
-for won_hero_column in won_hero_columns:
-    for lost_hero_column in lost_hero_columns:
-        crossed_columns.append(tf.feature_column.crossed_column([won_hero_column, lost_hero_column], hash_bucket_size=1000))
+base_cols = won_hero_cols + lost_hero_cols + [map_name]
 
-wide_columns = base_columns + crossed_columns
-deep_columns = [
-    won_mmr_1, won_mmr_2, won_mmr_3, won_mmr_4, won_mmr_5,
-    lost_mmr_1, lost_mmr_2, lost_mmr_3, lost_mmr_4, lost_mmr_5,
-    duration,
-    tf.feature_column.indicator_column(won_hero_1),
-    tf.feature_column.indicator_column(won_hero_2),
-    tf.feature_column.indicator_column(won_hero_3),
-    tf.feature_column.indicator_column(won_hero_4),
-    tf.feature_column.indicator_column(won_hero_5),
-    tf.feature_column.indicator_column(lost_hero_1),
-    tf.feature_column.indicator_column(lost_hero_2),
-    tf.feature_column.indicator_column(lost_hero_3),
-    tf.feature_column.indicator_column(lost_hero_4),
-    tf.feature_column.indicator_column(lost_hero_5),
-    tf.feature_column.indicator_column(map_name)
-]
+crossed_cols = []
+for won_hero_column in won_hero_cols:
+    for lost_hero_column in lost_hero_cols:
+        crossed_cols.append(
+            tf.feature_column.crossed_column(
+                [won_hero_column, lost_hero_column],
+                hash_bucket_size=1000
+            )
+        )
+
+wide_cols = base_cols + crossed_cols
+deep_cols = won_mmr_cols \
+               + lost_mmr_cols \
+               + [duration] \
+               + won_hero_indicator_cols \
+               + lost_hero_indicator_cols
 
 for n in range(TRAIN_EPOCHS // TEST_EPOCHS):
-    # run_config = tf.estimator.RunConfig().replace(session_config=tf.ConfigProto(device_count={'GPU': 0}))
     model = tf.estimator.DNNLinearCombinedClassifier(
         model_dir=MODEL_DIR,
-        linear_feature_columns=wide_columns,
-        dnn_feature_columns=deep_columns,
+        linear_feature_columns=wide_cols,
+        dnn_feature_columns=deep_cols,
         dnn_hidden_units=HIDDEN_UNITS
     )
     model.train(
